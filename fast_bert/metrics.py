@@ -1,6 +1,6 @@
 import numpy as np
 from torch import Tensor
-from sklearn.metrics import roc_curve, auc, hamming_loss, accuracy_score
+from sklearn.metrics import roc_curve, auc, hamming_loss, accuracy_score, roc_auc_score
 import pdb
 
 CLASSIFICATION_THRESHOLD: float = 0.5  # Best keep it in [0.0, 1.0] range
@@ -72,10 +72,93 @@ def roc_auc(y_pred: Tensor, y_true: Tensor):
     y_true = y_true.detach().cpu().numpy()
     y_pred = y_pred.detach().cpu().numpy()
 
+#    print(y_true)
+    # Compute micro-average ROC curve and ROC area
+ 
+    fpr["micro"], tpr["micro"], _ = roc_curve(y_true.ravel(), y_pred.ravel())
+#    print('fpr["micro"]', fpr["micro"])
+    roc_auc["micro"] = auc(fpr["micro"], tpr["micro"])
+
+#    all_labels_roc = roc_auc_score(y_true.ravel(), y_pred.ravel(), average=None)
+#    print('all_labels_roc', all_labels_roc)
+
+#    print('roc_auc', roc_auc) 
+    return roc_auc["micro"]
+
+import pickle
+def roc_auc_save_to_plot(y_pred: Tensor, y_true: Tensor):
+    # ROC-AUC calcualation
+    # Compute ROC curve and ROC area for each class
+    fpr = dict()
+    tpr = dict()
+    roc_auc = dict()
+
+    y_true = y_true.detach().cpu().numpy()
+    y_pred = y_pred.detach().cpu().numpy()
+    
+    print(y_true)
+    print(y_true.shape)
+    
+    print(y_pred)
+    print(y_true.shape)     
+    
+    num_classes = 5
+    for i in range(num_classes):
+        fpr[i], tpr[i], _ = roc_curve(y_true[:, i], y_pred[:, i])
+        roc_auc[i] = auc(fpr[i], tpr[i])
+
     # Compute micro-average ROC curve and ROC area
     fpr["micro"], tpr["micro"], _ = roc_curve(y_true.ravel(), y_pred.ravel())
     roc_auc["micro"] = auc(fpr["micro"], tpr["micro"])
+    
+    output = {'fpr':fpr, 'tpr':tpr, 'roc_auc':roc_auc}
+        
+    pickle.dump( output, open( "./roc_auc_save_to_plot.pkl", "wb" ) )
+        
+    return roc_auc["micro"]
 
+from scipy.special import softmax
+
+
+def roc_auc_save_to_plot_binary(y_pred: Tensor, y_true: Tensor):
+    # ROC-AUC calcualation
+    # Compute ROC curve and ROC area for each class
+    fpr = dict()
+    tpr = dict()
+    roc_auc = dict()
+    
+#     print(y_pred.shape)
+
+    y_true = y_true.detach().cpu().numpy()
+    y_pred = y_pred.detach().cpu().numpy()
+    
+    
+#     print(y_true)
+#     print(y_true.shape)
+    
+#     print(y_pred)
+#     print(y_true.shape)    
+    
+    y_pred = [softmax(i)[1] for i in y_pred]
+    print(min(y_pred))
+    print(max(y_pred))
+
+#     print(y_preDd)    
+
+    
+#     num_classes = 1
+#     for i in range(num_classes):
+#     fpr, tpr, _ = roc_curve(y_true, y_pred)
+#     roc_auc = auc(fpr, tpr)
+
+    # Compute micro-average ROC curve and ROC area
+    fpr["micro"], tpr["micro"], thresholds = roc_curve(y_true.ravel(), y_pred)
+    roc_auc["micro"] = auc(fpr["micro"], tpr["micro"])
+    
+    output = {'fpr':fpr, 'tpr':tpr, 'roc_auc':roc_auc, 'thresholds': thresholds}
+        
+    pickle.dump( output, open( "./roc_auc_save_to_plot_binary.pkl", "wb" ) )
+        
     return roc_auc["micro"]
 
 
