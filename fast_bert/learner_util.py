@@ -110,16 +110,14 @@ class Learner(object):
             optimizer, num_warmup_steps=self.warmup_steps, num_training_steps=t_total
         )
 
-    def save_model(self, path=None):
+    def save_model(self, epoch):
 
-        if not path:
-            path = self.output_dir / "model_out"
+        print('saving to file')
 
+        path = self.output_dir / "model_out_{}".format(epoch)
+        print(path)
         path.mkdir(exist_ok=True)
-
-        # Convert path to str for save_pretrained calls
-        path = str(path)
-
+        #
         torch.cuda.empty_cache()
         # Save a trained model
         model_to_save = (

@@ -10,14 +10,13 @@ from .learner_util import Learner
 
 from .data_lm import BertLMDataBunch
 
-from transformers import (WEIGHTS_NAME, BertConfig, BertForMaskedLM, RobertaConfig, RobertaForMaskedLM, DistilBertConfig, DistilBertForMaskedLM, CamembertConfig, CamembertForMaskedLM)
+from transformers import (WEIGHTS_NAME, BertConfig, BertForMaskedLM, RobertaConfig, RobertaForMaskedLM, DistilBertConfig, DistilBertForMaskedLM)
 
 
 MODEL_CLASSES = {
     'bert': (BertConfig, BertForMaskedLM),
     'roberta': (RobertaConfig, RobertaForMaskedLM),
-    'distilbert': (DistilBertConfig, DistilBertForMaskedLM),
-    'camembert-base': (CamembertConfig, CamembertForMaskedLM)
+    'distilbert': (DistilBertConfig, DistilBertForMaskedLM)
 }
 
 class BertLMLearner(Learner):
@@ -251,11 +250,9 @@ class BertLMLearner(Learner):
 
         return results
 
-    def save_model(self, path=None):
+    def save_model(self):
 
-        if not path:
-            path = self.output_dir/'model_out'
-
+        path = self.output_dir/'model_out'
         path.mkdir(exist_ok=True)
 
         torch.cuda.empty_cache()

@@ -10,7 +10,48 @@ import shutil
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler, SequentialSampler
 from torch.utils.data.distributed import DistributedSampler
 
-from transformers import AutoTokenizer
+from transformers import (
+    WEIGHTS_NAME,
+    BertConfig,
+    BertForSequenceClassification,
+    BertTokenizer,
+    XLMConfig,
+    XLMForSequenceClassification,
+    XLMTokenizer,
+    XLNetConfig,
+    XLNetForSequenceClassification,
+    XLNetTokenizer,
+    RobertaConfig,
+    RobertaForSequenceClassification,
+    RobertaTokenizer,
+    CamembertConfig,
+    CamembertForSequenceClassification,
+    CamembertTokenizer,
+    AlbertConfig,
+    AlbertForSequenceClassification,
+    AlbertTokenizer,
+    DistilBertConfig,
+    DistilBertForSequenceClassification,
+    DistilBertTokenizer,
+)
+
+MODEL_CLASSES = {
+    "bert": (BertConfig, BertForSequenceClassification, BertTokenizer),
+    "xlnet": (XLNetConfig, XLNetForSequenceClassification, XLNetTokenizer),
+    "xlm": (XLMConfig, XLMForSequenceClassification, XLMTokenizer),
+    "roberta": (RobertaConfig, RobertaForSequenceClassification, RobertaTokenizer),
+    "albert": (AlbertConfig, AlbertForSequenceClassification, AlbertTokenizer),
+    "distilbert": (
+        DistilBertConfig,
+        DistilBertForSequenceClassification,
+        DistilBertTokenizer,
+    ),
+    "camembert": (
+        CamembertConfig,
+        CamembertForSequenceClassification,
+        CamembertTokenizer,
+    ),
+}
 
 
 class InputExample(object):
@@ -34,8 +75,10 @@ class InputExample(object):
         if isinstance(label, list):
             self.label = label
         elif label:
+            # print('1why', label)
             self.label = str(label)
         else:
+            # print('0why', label)
             self.label = None
 
 
@@ -47,6 +90,9 @@ class InputFeatures(object):
         self.input_mask = input_mask
         self.segment_ids = segment_ids
         self.label_id = label_id
+
+    # def __str__(self):
+    #     return(self.label_id)
 
 
 def _truncate_seq_pair(tokens_a, tokens_b, max_length):
@@ -95,15 +141,16 @@ def convert_examples_to_features(
 
     features = []
     for (ex_index, example) in enumerate(examples):
+        # print('>>> example:', example.label)
         if ex_index % 10000 == 0:
             if logger:
                 logger.info("Writing example %d of %d" % (ex_index, len(examples)))
 
-        tokens_a = tokenizer.tokenize(str(example.text_a))
+        tokens_a = tokenizer.tokenize(example.text_a)
 
         tokens_b = None
         if example.text_b:
-            tokens_b = tokenizer.tokenize(str(example.text_b))
+            tokens_b = tokenizer.tokenize(example.text_b)
             # Modifies `tokens_a` and `tokens_b` in place so that the total
             # length is less than the specified length.
             # Account for [CLS], [SEP], [SEP] with "- 3"
@@ -174,12 +221,28 @@ def convert_examples_to_features(
             label_id = []
             for label in example.label:
                 label_id.append(float(label))
+            # print(type(example.label))
+            # print('wazzup')
+            # print(example.label)
+            # print(label_map)
+            # print(label_id)
+            # <class 'list'>
+            # [nan, 0, 0, nan, 0]
+            # {'is_unemployed': 0, 'lost_job_1mo': 1, 'job_search': 2, 'is_hired_1mo': 3, 'job_offer"': 4}
+            # [nan, 0.0, 0.0, nan, 0.0]
         else:
+            # print('>> example.label', example.label)
             if example.label is not None:
-                label_id = label_map[example.label]
+                # print(type(example.label))
+                # print(label_map)
+                # label_id = label_map[example.label]
+                label_id = float(example.label)
+                # print(label_id)
+                # print(type(label_id))
             else:
-                label_id = ""
+                label_id = float(0)
 
+        # print(label_id, type(label_id))
         features.append(
             InputFeatures(
                 input_ids=input_ids,
@@ -188,6 +251,15 @@ def convert_examples_to_features(
                 label_id=label_id,
             )
         )
+        # print('example.text_a', example.text_a)
+        # print('example.text_b', example.text_b)
+        # print('input_ids', input_ids)
+        # print('input_mask', input_mask)
+        # print('segment_ids', segment_ids)
+        # print('label_id', label_id)
+        # print(y)
+        # print(type(example))
+
     return features
 
 
@@ -222,7 +294,10 @@ class TextProcessor(DataProcessor):
     ):
 
         if size == -1:
-            data_df = pd.read_csv(os.path.join(self.data_dir, filename))
+            print('>>>', os.path.join(self.data_dir, filename))
+            data_df = pd.read_csv(os.path.join(self.data_dir, filename), lineterminator='\n')
+            print(data_df.head())
+            # print(data_df.head())
 
             return self._create_examples(
                 data_df, "train", text_col=text_col, label_col=label_col
@@ -276,25 +351,46 @@ class TextProcessor(DataProcessor):
     def _create_examples(self, df, set_type, text_col, label_col):
         """Creates examples for the training and dev sets."""
         if label_col is None:
+            print('wut')
             return list(
                 df.apply(
                     lambda row: InputExample(
-                        guid=row.index, text_a=str(row[text_col]), label=None
+                        guid=row.index, text_a=row[text_col], label=None
                     ),
                     axis=1,
                 )
             )
         else:
-            return list(
+            # print('label_col', label_col)
+            # print(df.iloc[1])
+            # print('label_col', df.iloc[1][label_col].values)
+            # print('label_col', df.iloc[1][label_col].to_dict().values())
+            # print('label_col', list(df[label_col].values))
+            # print(type(df.iloc[1][label_col].values))
+
+            # for i in range(df.shape[0]):
+            #     print('direct', df.iloc[i][label_col])
+            #     print('value', df.iloc[i][label_col].values[0])
+
+
+            output = list(
                 df.apply(
                     lambda row: InputExample(
-                        guid=row.index,
-                        text_a=str(row[text_col]),
-                        label=str(row[label_col]),
+                                            guid=row.index,
+                                            text_a=row[text_col],
+                                            label=row[label_col].values[0]
+                                            # label=float(row[label_col].values[0])
+                                            # # label=str(row[label_col].values[0])
+                                            # label=str(row[label_col])
                     ),
                     axis=1,
                 )
             )
+
+            # for example in output:
+            #     print('hey', example.label)
+
+            return output
 
 
 class MultiLabelTextProcessor(TextProcessor):
@@ -363,8 +459,11 @@ class BertDataBunch(object):
             label_dir = Path(label_dir)
 
         if isinstance(tokenizer, str):
+            _, _, tokenizer_class = MODEL_CLASSES[model_type]
             # instantiate the new tokeniser object using the tokeniser name
-            tokenizer = AutoTokenizer.from_pretrained(tokenizer, use_fast=True)
+            tokenizer = tokenizer_class.from_pretrained(
+                tokenizer, do_lower_case=("uncased" in tokenizer)
+            )
 
         self.tokenizer = tokenizer
         self.data_dir = data_dir
@@ -413,6 +512,7 @@ class BertDataBunch(object):
             )
 
             if os.path.exists(cached_features_file) is False or self.no_cache is True:
+                print('cached_features_file:', cached_features_file)
                 train_examples = processor.get_train_examples(
                     train_file, text_col=text_col, label_col=label_col
                 )
@@ -510,8 +610,8 @@ class BertDataBunch(object):
             file_name = self.val_file
         elif set_type == "test":
             file_name = (
-                "test"  # test is not supposed to be a file - just a list of texts
-            )
+                "test"
+            )  # test is not supposed to be a file - just a list of texts
 
         cached_features_file = os.path.join(
             self.cache_dir,
@@ -532,7 +632,7 @@ class BertDataBunch(object):
         else:
             # Create tokenized and numericalized features
             features = convert_examples_to_features(
-                examples,
+                examples, #this is just a pandas datafram of the train or test data
                 label_list=self.labels,
                 max_seq_length=self.max_seq_length,
                 tokenizer=self.tokenizer,
@@ -571,8 +671,11 @@ class BertDataBunch(object):
                     [f.label_id for f in features], dtype=torch.float
                 )
             else:
+                # print([f.label_id for f in features])
+                # print(sum([f.label_id for f in features]))
                 all_label_ids = torch.tensor(
                     [f.label_id for f in features], dtype=torch.long
+                    # [int(f.label_id) for f in features], dtype=torch.long
                 )
 
             dataset = TensorDataset(

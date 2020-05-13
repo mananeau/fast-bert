@@ -3,6 +3,8 @@ from .data_cls import BertDataBunch, InputExample, InputFeatures
 from .learner_util import Learner
 from torch import nn
 from typing import List
+import torch.cuda as cutorch
+
 
 from .modeling import (
     BertForMultiLabelSequenceClassification,
@@ -19,6 +21,9 @@ import torch
 import pandas as pd
 import numpy as np
 from sklearn.metrics import roc_curve, auc
+
+import json
+import time
 
 from pathlib import Path
 
@@ -50,8 +55,6 @@ from transformers import (
     DistilBertForSequenceClassification,
     DistilBertTokenizer,
 )
-
-from transformers import AutoModelForSequenceClassification, AutoConfig
 
 
 MODEL_CLASSES = {
@@ -88,7 +91,7 @@ MODEL_CLASSES = {
         (AlbertForSequenceClassification, AlbertForMultiLabelSequenceClassification),
         AlbertTokenizer,
     ),
-    "camembert-base": (
+    "camembert": (
         CamembertConfig,
         (
             CamembertForSequenceClassification,
@@ -125,42 +128,36 @@ class BertLearner(Learner):
         max_grad_norm=1.0,
         adam_epsilon=1e-8,
         logging_steps=100,
-        freeze_transformer_layers=False
     ):
 
         model_state_dict = None
 
         model_type = dataBunch.model_type
 
-        if torch.cuda.is_available():
-            map_location = lambda storage, loc: storage.cuda()
-        else:
-            map_location = 'cpu'
+        config_class, model_class, _ = MODEL_CLASSES[model_type]
+
+        config = config_class.from_pretrained(
+            str(pretrained_path), num_labels=len(dataBunch.labels)
+        )
 
         if finetuned_wgts_path:
-            model_state_dict = torch.load(finetuned_wgts_path, map_location=map_location)
+            model_state_dict = torch.load(finetuned_wgts_path)
         else:
             model_state_dict = None
 
         if multi_label is True:
-            config_class, model_class, _ = MODEL_CLASSES[model_type]
-
-            config = config_class.from_pretrained(
-                str(pretrained_path), num_labels=len(dataBunch.labels)
-            )
-
+            print(str(pretrained_path))
+            print(type(str(pretrained_path)))
             model = model_class[1].from_pretrained(
                 str(pretrained_path), config=config, state_dict=model_state_dict
             )
         else:
-            config = AutoConfig.from_pretrained(
-                str(pretrained_path), num_labels=len(dataBunch.labels)
-            )
-            model = AutoModelForSequenceClassification.from_pretrained(
+            model = model_class[0].from_pretrained(
                 str(pretrained_path), config=config, state_dict=model_state_dict
             )
 
         model.to(device)
+#         print(model)
 
         return BertLearner(
             dataBunch,
@@ -180,7 +177,6 @@ class BertLearner(Learner):
             max_grad_norm,
             adam_epsilon,
             logging_steps,
-            freeze_transformer_layers
         )
 
     def __init__(
@@ -202,7 +198,7 @@ class BertLearner(Learner):
         max_grad_norm=1.0,
         adam_epsilon=1e-8,
         logging_steps=100,
-        freeze_transformer_layers=False
+        # training_results = output_dir+"/results.csv",
     ):
 
         super(BertLearner, self).__init__(
@@ -220,81 +216,22 @@ class BertLearner(Learner):
             max_grad_norm,
             adam_epsilon,
             logging_steps,
+            
         )
 
         # Classification specific attributes
         self.multi_label = multi_label
         self.metrics = metrics
+        self.results_all_epochs = {}
 
-        # Freezing transformer model layers
-        if freeze_transformer_layers:
-            for name, param in self.model.named_parameters():
-                if name.startswith(data.model_type):
-                    param.requires_grad = False
+    def save_results(self):
 
-    # def freeze_to(self, n: int) -> None:
-    #     "Freeze layers up to layer group `n`."
-    #     for g in self.layer_groups[:n]:
-    #         for l in g:
-    #             if not isinstance(l, self.bn_types):
-    #                 requires_grad(l, False)
-    #     for g in self.layer_groups[n:]:
-    #         requires_grad(g, True)
-    #     self.optimizer = None
+        path_to_file = self.output_dir / "results.json"
 
-    # def freeze_module(self, module):
-    #     for param in module.parameters():
-    #         param.requires_grad = False
+        print('>> saving to.. ', path_to_file)
+        with open(path_to_file, 'w+') as json_file: #w+ for delete the original content then read/write if file exists, otherwise create the file
+            json.dump(self.results_all_epochs, json_file)
 
-    # def unfreeze_module(self, module):
-    #     for param in module.parameters():
-    #         param.requires_grad = True
-
-    # def freeze(self) -> None:
-    #     "Freeze up to last layer group."
-    #     assert len(self.layer_groups) > 1
-    #     self.freeze_to(-1)
-    #     self.optimizer = None
-
-    # def unfreeze(self):
-    #     "Unfreeze entire model."
-    #     self.freeze_to(0)
-    #     self.optimizer = None
-
-    # def bert_clas_split(self) -> List[nn.Module]:
-    #     "Split the BERT `model` in groups for differential learning rates."
-    #     if self.model.module:
-    #         model = self.model.module
-    #     else:
-    #         model = self.model
-
-    #     bert = model.bert
-
-    #     embedder = bert.embeddings
-    #     pooler = bert.pooler
-
-    #     encoder = bert.encoder
-
-    #     classifier = [model.dropout, model.classifier]
-
-    #     n = len(encoder.layer) // 3
-
-    #     groups = [
-    #         [embedder],
-    #         list(encoder.layer[:n]),
-    #         list(encoder.layer[n : 2 * n]),
-    #         list(encoder.layer[2 * n :]),
-    #         [pooler],
-    #         classifier,
-    #     ]
-    #     return groups
-
-    # def split(self, split_on: SplitFuncOrIdxList) -> None:
-    #     "Split the model at `split_on`."
-    #     if isinstance(split_on, Callable):
-    #         split_on = split_on()
-    #     self.layer_groups = split_model(self.model, split_on)
-    #     return self
 
     ### Train the model ###
     def fit(
@@ -302,11 +239,10 @@ class BertLearner(Learner):
         epochs,
         lr,
         validate=True,
-        return_results=False,
         schedule_type="warmup_cosine",
         optimizer_type="lamb",
     ):
-        results_val = []
+
         tensorboard_dir = self.output_dir / "tensorboard"
         tensorboard_dir.mkdir(exist_ok=True)
 
@@ -325,12 +261,15 @@ class BertLearner(Learner):
 
         # Prepare optimiser
         optimizer = self.get_optimizer(lr, optimizer_type=optimizer_type)
+        # input('hey')
 
         # get the base model if its already wrapped around DataParallel
         if hasattr(self.model, "module"):
+            # input('module')
             self.model = self.model.module
 
         if self.is_fp16:
+            # print('fp16')
             try:
                 from apex import amp
             except ImportError:
@@ -339,6 +278,8 @@ class BertLearner(Learner):
                 self.model, optimizer, opt_level=self.fp16_opt_level
             )
 
+        # print(type(self.model))
+        # input('hey')
         # Get scheduler
         scheduler = self.get_scheduler(
             optimizer, t_total=t_total, schedule_type=schedule_type
@@ -346,6 +287,7 @@ class BertLearner(Learner):
 
         # Parallelize the model architecture
         if self.multi_gpu is True:
+            # input('multi_gpu')
             self.model = torch.nn.DataParallel(self.model)
 
         # Start Training
@@ -368,6 +310,10 @@ class BertLearner(Learner):
         pbar = master_bar(range(epochs))
 
         for epoch in pbar:
+
+            self.save_model(epoch=epoch)
+            start_time = time.time()
+
             epoch_step = 0
             epoch_loss = 0.0
             for step, batch in enumerate(progress_bar(train_dataloader, parent=pbar)):
@@ -383,6 +329,9 @@ class BertLearner(Learner):
                     inputs["token_type_ids"] = batch[2]
 
                 outputs = self.model(**inputs)
+
+                # print('>>>>>', outputs)
+
                 loss = outputs[
                     0
                 ]  # model outputs are always tuple in pytorch-transformers (see doc)
@@ -451,14 +400,20 @@ class BertLearner(Learner):
 
                         logging_loss = tr_loss
 
-            # Evaluate the model against validation set after every epoch
+            # Evaluate the model after every epoch
             if validate:
                 results = self.validate()
                 for key, value in results.items():
                     self.logger.info(
                         "eval_{} after epoch {}: {}: ".format(key, (epoch + 1), value)
                     )
-                results_val.append(results)
+                results['epoch'] = epoch
+                results['train_loss'] = epoch_loss
+                results['lr'] = scheduler.get_lr()[0]
+                results['time'] = str(time.time() - start_time)
+
+                self.results_all_epochs[epoch] = results
+                self.save_results()
 
             # Log metrics
             self.logger.info(
@@ -472,15 +427,12 @@ class BertLearner(Learner):
             self.logger.info("\n")
 
         tb_writer.close()
-
-        if return_results:
-            return global_step, tr_loss / global_step, results_val
-        else:
-            return global_step, tr_loss / global_step
+        return global_step, tr_loss / global_step
 
     ### Evaluate the model
     def validate(self):
         self.logger.info("Running evaluation")
+
         self.logger.info("  Num examples = %d", len(self.data.val_dl.dataset))
         self.logger.info("  Batch size = %d", self.data.val_batch_size)
 
@@ -510,6 +462,9 @@ class BertLearner(Learner):
                     inputs["token_type_ids"] = batch[2]
 
                 outputs = self.model(**inputs)
+                # print(outputs)
+#                 print(outputs.shape)
+                
                 tmp_eval_loss, logits = outputs[:2]
 
                 eval_loss += tmp_eval_loss.mean().item()
@@ -549,6 +504,7 @@ class BertLearner(Learner):
 
         return results
 
+
     ### Return Predictions ###
     def predict_batch(self, texts=None):
 
@@ -564,6 +520,13 @@ class BertLearner(Learner):
         self.model.eval()
         for step, batch in enumerate(dl):
             batch = tuple(t.to(self.device) for t in batch)
+            
+#             print('batch size', batch[0].shape)
+#             t = torch.cuda.get_device_properties(0).total_memory
+#             c = torch.cuda.memory_cached(0)
+#             a = torch.cuda.memory_allocated(0)
+#             f = c-a  # free inside cache
+#             print(f/1024/1024, 'gb free', t/1024/1024, 'gb total')
 
             inputs = {"input_ids": batch[0], "attention_mask": batch[1], "labels": None}
 
@@ -586,8 +549,13 @@ class BertLearner(Learner):
                 all_logits = np.concatenate(
                     (all_logits, logits.detach().cpu().numpy()), axis=0
                 )
+        print('inference done')
 
         result_df = pd.DataFrame(all_logits, columns=self.data.labels)
-        results = result_df.to_dict("record")
+#         print(result_df.head())
+#         results = result_df.to_dict("record")
+#         print(results)
 
-        return [sorted(x.items(), key=lambda kv: kv[1], reverse=True) for x in results]
+#         return all_logits
+        return result_df
+#         return [sorted(x.items(), key=lambda kv: kv[1], reverse=True) for x in results] #for some reason, this is sometime not sorted correctly
